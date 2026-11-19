@@ -103,10 +103,15 @@ claude -p "<prompt>" --output-format json --mcp-config mcp\jira.json --strict-mc
 - Deploy it manually into `runtime\mynews\current` and run it.
 - Done when: browser shows the AI TLDR brief.
 
-**M2: MCP deployer**
-- Implement `get_status` and `apply_patch` (+ rollback).
-- Test with **MCP Inspector** (`npx @modelcontextprotocol/inspector`), then with `claude mcp add` in an interactive Claude session: "patch the app with package X".
-- Done when: a new zip is deployed and `/version` changes, and a broken zip rolls back cleanly.
+**M2: MCP deployer: DONE**
+- Implemented `get_status`, `apply_patch`, `restart`, `rollback` (`factory/mcp-deployer/`), streamable HTTP on `127.0.0.1:8765/mcp`, bearer token in `factory/.env` (`DEPLOYER_TOKEN`).
+- Verified: 7 integration tests (first deploy, upgrade + backup, broken package rolls back, crash-at-import rolls back, explicit rollback, rejected bad packages, restart); real deploy of mynews 0.1.0 over MCP; a headless `claude -p` agent calling `get_status` through `--mcp-config`.
+- Learnings:
+  - The `mcp` Python SDK is v2 here: `from mcp.server.mcpserver import MCPServer` (FastMCP was renamed).
+  - Windows: a child started with DETACHED_PROCESS is still a child by parent-pid, so `taskkill /T` on the deployer also killed mynews. `stop-deployer.ps1` kills only the deployer's own processes (matched by command line), not the tree.
+  - Dependencies are installed into the runtime venv from a staging copy *before* the running app is stopped, so a bad requirements.txt costs no downtime.
+  - Paths in JSON passed through bash `curl` break with backslashes; use forward slashes (`C:/mywork/...`).
+  - Claude CLI is at `C:\Users\isras\.local\bin\claude.exe` (not on PATH in the bash tool).
 
 **M3: Custom Jira MCP (stdio)**
 - Python script using the `mcp` SDK; spawned by Claude per session (`command` + `args` in the MCP config), reads `JIRA_EMAIL`, `JIRA_TOKEN`, `JIRA_SITE` from the environment/`.env`.
