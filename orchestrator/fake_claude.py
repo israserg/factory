@@ -13,6 +13,13 @@ if mode == "garbage":
 elif mode == "error":
     print(json.dumps({"type": "result", "subtype": "error_max_turns", "is_error": True,
                       "terminal_reason": "max_turns", "result": "ran out of turns"}))
+elif mode == "intake_ambiguous":
+    print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "num_turns": 2,
+                      "total_cost_usd": 0.01, "permission_denials": [],
+                      "structured_output": {
+                          "outcome": "ready", "issue_key": "KAN-9", "title": "Make it nicer",
+                          "instructions_md": "## Task\n" + "Make the header bigger. " * 8 + "\n## Assumptions\n- 'nicer' = larger title",
+                          "assumptions": ["'nicer' interpreted as a larger header title", "  "], "reason": ""}}))
 elif mode == "no_structured":
     print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "free text"}))
 else:

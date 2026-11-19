@@ -115,6 +115,25 @@ def test_pipeline_failure_runs_cleanup_and_returns_1(cfg, monkeypatch):
     assert ctx["status"] == "failed" and ctx["stages"]["intake"]["status"] == "ok"
 
 
+def test_ambiguous_ticket_is_not_a_reason_to_stop_assumptions_are_recorded(cfg, tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "intake_ambiguous")
+    cfg.mynews_repo = tmp_path
+    run_dir, logged = tmp_path / "run", []
+    run_dir.mkdir()
+    ctx = {"dry_run": True, "run_id": "t"}
+    assert stages.intake(ctx, cfg, run_dir, logged.append) is None       # None = continue, not "stop"
+    assert ctx["assumptions"] == ["'nicer' interpreted as a larger header title"]   # blanks dropped
+    assert "Assumptions" in (run_dir / "instructions.md").read_text()
+    assert any("no questions asked" in m for m in logged)
+
+
+def test_prompts_tell_agents_never_to_ask_questions(cfg):
+    intake = stages.render(cfg, "intake", project="KAN", mode_note="m", unclear_action="u", ready_action="r")
+    impl = stages.render(cfg, "implement", branch="b", python="p", instructions="i")
+    assert "NEVER stop to ask questions" in intake and "assumptions" in intake
+    assert "Never stop to ask questions" in impl
+
+
 def test_preflight_failure_stops_before_any_stage(cfg, monkeypatch, capsys):
     def down(*a):
         raise StageFailure("deployer unreachable")

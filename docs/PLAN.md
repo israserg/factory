@@ -145,7 +145,8 @@ claude -p "<prompt>" --output-format json --mcp-config mcp\jira.json --strict-mc
 **M5: End to end: happy path DONE, failure path still to do**
 - Real run `m5-kan5` (2026-11-19): KAN-5 To Do -> In Progress -> Done in ~80 s; mynews 0.1.0 -> 0.2.0 live; commit `9885d1f` "KAN-5: Show the total number of news items in the page header" pushed to `main` and `task/KAN-5`; Jira comment with commit and test results; agent cost reported ~$0.03.
 - Observed: implement agent tried the PowerShell tool for the whitelisted python command (denied, it fell back and succeeded); commit body is the agent's long first-person summary (could be shortened); author name comes from the dev repo's git config.
-- Still to do: a deliberately failing run (bad patch / test still failing after deploy) to watch rollback + Jira return to To Do end to end; an unclear ticket (stage 1 comments and stops).
+- Still to do: a deliberately failing run (bad patch / test still failing after deploy) to watch rollback + Jira return to To Do end to end; an ambiguous ticket (see the decision below).
+- Decision (2026-11-19): agents never stop to ask questions. On ambiguity the intake agent picks the most reasonable/simplest interpretation, records it under **Assumptions** in `instructions.md` and in the `assumptions` field; the close stage writes the assumptions into the Jira comment. `unclear` (comment on the ticket and stop) is reserved for tickets that cannot be implemented at all. The implement agent likewise picks a default and mentions it in its summary.
 
 **M6: Hardening and learning notes**
 - Add `--dry-run`, cost/turn limits, better logs, a per-run summary. Write what you learned in `factory\docs\`.

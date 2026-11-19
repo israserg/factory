@@ -111,8 +111,9 @@ INTAKE_SCHEMA = {
         "outcome": {"type": "string", "enum": ["ready", "unclear", "no_tasks"]},
         "issue_key": {"type": "string"}, "title": {"type": "string"},
         "instructions_md": {"type": "string"}, "reason": {"type": "string"},
+        "assumptions": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["outcome", "issue_key", "title", "instructions_md", "reason"],
+    "required": ["outcome", "issue_key", "title", "instructions_md", "assumptions", "reason"],
 }
 
 
@@ -147,7 +148,10 @@ def intake(ctx, cfg, run_dir, log):
     if len(out["instructions_md"].strip()) < 100:
         raise StageFailure("intake returned empty/too short instructions")
     (run_dir / "instructions.md").write_text(out["instructions_md"], encoding="utf-8")
+    ctx["assumptions"] = [a.strip() for a in out.get("assumptions", []) if a.strip()]
     log(f"task {out['issue_key']}: {out['title']}")
+    if ctx["assumptions"]:
+        log(f"assumptions (no questions asked): {'; '.join(ctx['assumptions'])}")
     if not dry:  # verify the agent really moved it
         status = jira_client().get_issue(out["issue_key"])["status"]
         if status != "In Progress":
@@ -317,7 +321,10 @@ def close(ctx, cfg, run_dir, log):
         log("dry run: Jira not touched")
         return
     tb, ta = ctx["tests_before"], ctx["tests_after"]
-    comment = (f"Implemented and deployed by the automated pipeline.\n\n{ctx['summary']}\n\n"
+    assumed = ctx.get("assumptions") or []
+    assumptions = ("Assumptions made (the ticket was ambiguous, no questions were asked):\n"
+                   + "\n".join(f"- {a}" for a in assumed) + "\n\n") if assumed else ""
+    comment = (f"Implemented and deployed by the automated pipeline.\n\n{ctx['summary']}\n\n{assumptions}"
                f"Version: {ctx['version']}\nCommit: {ctx['commit']} (branch {ctx['branch']}, merged to main)\n"
                f"Tests before deploy: {tb['failed']} failed as expected. After deploy: {ta['passed']} passed, "
                f"{ta['failed']} failed.\nRun: {ctx['run_id']}")

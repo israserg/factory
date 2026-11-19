@@ -14,7 +14,10 @@ Rules:
 - Build the deployment package with: `{{python}} scripts/package.py` (creates dist/mynews-<version>.zip).
 - Do NOT run git commit/push/checkout/reset, do not touch anything outside this directory, and do not start the
   app any other way. Only run the two commands above and read-only git commands (git status, git diff).
-- If the task cannot be done as specified, do not improvise: return outcome `failed` and explain in `summary`.
+- Never stop to ask questions: nobody is available to answer. Where the instructions leave something open, choose the
+  simplest sensible default and mention that choice in `summary`.
+- Only if the task truly cannot be done (for example it contradicts the code or needs something we do not have),
+  return outcome `failed` and explain in `summary`.
 
 ## Task instructions
 
