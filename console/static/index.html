@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Run console</title>
+  <style>
+    :root { --bg:#f6f7f9; --fg:#1d2330; --dim:#8a93a5; --card:#fff; --line:#e3e6ec;
+            --ok:#1a7f4b; --err:#c62828; --warn:#a15c00; --step:#0b57d0; --btn:#1a7f4b; --btnh:#146b3e; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#14171d; --fg:#e6e9ef; --dim:#8a93a5; --card:#1c2029; --line:#2b3140;
+              --ok:#4cc38a; --err:#ff7b72; --warn:#e3b341; --step:#79b8ff; --btn:#238a57; --btnh:#2da36a; }
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.45 system-ui,-apple-system,Segoe UI,sans-serif; }
+    main { max-width: 860px; margin: 0 auto; padding: 24px 16px 40px; }
+    h1 { font-size: 1.1rem; margin: 0 0 18px; font-weight: 600; color: var(--dim); }
+    .pills { display:flex; gap:8px; flex-wrap:wrap; margin-bottom: 18px; }
+    .pill { font-size:.8rem; padding:3px 10px; border-radius:999px; border:1px solid var(--line); background:var(--card); }
+    .pill.up::before, .pill.down::before { content:""; display:inline-block; width:8px; height:8px; border-radius:50%;
+                                           margin-right:6px; background:var(--dim); }
+    .pill.up::before { background: var(--ok); } .pill.down::before { background: var(--err); }
+    #run { display:block; width:100%; padding: 34px 0; font-size: 2.2rem; font-weight: 700; letter-spacing:.04em;
+           color:#fff; background:var(--btn); border:0; border-radius:16px; cursor:pointer; }
+    #run:hover:not(:disabled) { background:var(--btnh); }
+    #run:disabled { opacity:.55; cursor:progress; }
+    .opts { margin: 10px 2px 0; font-size:.85rem; color:var(--dim); }
+    .opts label { cursor:pointer; }
+    #status { margin: 22px 0 8px; font-weight:600; display:flex; align-items:center; gap:10px; }
+    .badge { font-size:.8rem; padding:2px 10px; border-radius:999px; color:#fff; background:var(--dim); }
+    .badge.running { background:var(--step); } .badge.done { background:var(--ok); }
+    .badge.failed { background:var(--err); } .badge.stopped { background:var(--warn); }
+    #log { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px;
+           height: 52vh; min-height: 260px; overflow:auto; font: 13.5px/1.55 ui-monospace,Consolas,monospace; }
+    #log .row { white-space: pre-wrap; word-break: break-word; }
+    #log .ts { color: var(--dim); margin-right: 8px; }
+    #log .step { color: var(--step); font-weight: 700; margin-top: 8px; }
+    #log .ok { color: var(--ok); } #log .error { color: var(--err); font-weight:600; }
+    #log .warn { color: var(--warn); } #log .dim { color: var(--dim); }
+    #log .empty { color: var(--dim); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>mynews: task to production</h1>
+  <div class="pills">
+    <span class="pill" id="p-deployer">deployer</span>
+    <span class="pill" id="p-mynews">mynews</span>
+  </div>
+
+  <button id="run">RUN</button>
+  <div class="opts"><label><input type="checkbox" id="dry"> Dry run (no Jira changes, no git push)</label></div>
+
+  <div id="status"><span class="badge" id="badge">idle</span><span id="statustext"></span></div>
+  <div id="log"><div class="empty">The progress log will appear here.</div></div>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const logEl = $("log"), btn = $("run");
+  let next = 0, gen = -1, timer = null;
+
+  function clearLog() { logEl.innerHTML = ""; }
+  function addLines(lines) {
+    const stick = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 40;
+    for (const l of lines) {
+      const row = document.createElement("div");
+      row.className = "row " + l.level;
+      const ts = document.createElement("span");
+      ts.className = "ts"; ts.textContent = l.ts;
+      row.append(ts, document.createTextNode(l.text));
+      logEl.appendChild(row);
+    }
+    if (stick) logEl.scrollTop = logEl.scrollHeight;
+  }
+  function setStatus(s) {
+    $("badge").textContent = s; $("badge").className = "badge " + s;
+    const running = s === "running";
+    btn.disabled = running; btn.textContent = running ? "RUNNING…" : "RUN";
+    $("dry").disabled = running;
+  }
+
+  async function poll() {
+    clearTimeout(timer);
+    let delay = 3000;
+    try {
+      const r = await fetch(`/api/state?since=${next}&gen=${gen}`);
+      const s = await r.json();
+      if (s.reset) { clearLog(); }
+      if (s.lines.length) addLines(s.lines);
+      next = s.next; gen = s.gen;
+      setStatus(s.status);
+      delay = s.status === "running" ? 700 : 3000;
+    } catch (e) { $("statustext").textContent = "console server not reachable"; }
+    timer = setTimeout(poll, delay);
+  }
+
+  async function pollEnv() {
+    try {
+      const e = await (await fetch("/api/env")).json();
+      $("p-deployer").className = "pill " + (e.deployer ? "up" : "down");
+      $("p-deployer").textContent = "deployer " + (e.deployer ? "up" : "down");
+      $("p-mynews").className = "pill " + (e.mynews ? "up" : "down");
+      $("p-mynews").textContent = e.mynews ? "mynews v" + e.mynews : "mynews down";
+    } catch (e) {}
+    setTimeout(pollEnv, 5000);
+  }
+
+  btn.onclick = async () => {
+    btn.disabled = true;
+    clearLog(); next = 0;
+    const r = await fetch("/api/run", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-Console": "1"},
+      body: JSON.stringify({dry_run: $("dry").checked}),
+    });
+    $("statustext").textContent = r.status === 409 ? "a run is already in progress" : "";
+    poll();
+  };
+
+  poll(); pollEnv();
+</script>
+</body>
+</html>

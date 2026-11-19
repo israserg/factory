@@ -332,6 +332,14 @@ def close(ctx, cfg, run_dir, log):
     log(f"{ctx['issue_key']} is Done")
 
 
+def preflight(cfg: Config, first: int, last: int) -> None:
+    """Fail fast, before any Jira change or agent work, if something the selected stages need is down."""
+    if any(n in range(first, last + 1) for n in (3, 4, 5)):
+        deployer_call(cfg, "get_status")  # raises StageFailure if unreachable or token rejected
+        if app_version(cfg) is None:
+            raise StageFailure(f"mynews is not answering at {cfg.app_url}; deploy a baseline first")
+
+
 STAGES = [
     (1, "intake", intake), (2, "implement", implement), (3, "test_before", test_before),
     (4, "deploy", deploy), (5, "test_after", test_after), (6, "commit", commit), (7, "close", close),

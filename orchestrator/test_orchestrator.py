@@ -78,7 +78,8 @@ def test_real_prompts_have_all_placeholders_filled(cfg):
     stages.render(cfg, "close", issue_key="KAN-1", comment="c")
 
 
-def _run(monkeypatch, cfg, fake_stages, argv):
+def _run(monkeypatch, cfg, fake_stages, argv, preflight=lambda *a: None):
+    monkeypatch.setattr(run_pipeline, "preflight", preflight)
     monkeypatch.setattr(Config, "load", classmethod(lambda cls: cfg))
     monkeypatch.setattr(run_pipeline, "STAGES", fake_stages)
     monkeypatch.setattr(sys, "argv", ["run_pipeline.py", *argv])
@@ -112,6 +113,34 @@ def test_pipeline_failure_runs_cleanup_and_returns_1(cfg, monkeypatch):
     assert rc == 1 and cleaned == [(2, "tests still fail")]
     ctx = json.loads((next(cfg.state_dir.iterdir()) / "run.json").read_text())
     assert ctx["status"] == "failed" and ctx["stages"]["intake"]["status"] == "ok"
+
+
+def test_preflight_failure_stops_before_any_stage(cfg, monkeypatch, capsys):
+    def down(*a):
+        raise StageFailure("deployer unreachable")
+
+    def never(ctx, cfg, run_dir, log):
+        raise AssertionError("no stage may run when preflight fails")
+
+    rc = _run(monkeypatch, cfg, [(1, "intake", never)], [], preflight=down)
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "FAILED preflight: deployer unreachable" in out and "result: failed" in out
+    ctx = json.loads((next(cfg.state_dir.iterdir()) / "run.json").read_text())
+    assert ctx["status"] == "failed" and ctx["stages"] == {}
+
+
+def test_preflight_checks_only_what_the_selected_stages_need(cfg, monkeypatch):
+    calls = []
+    monkeypatch.setattr(stages, "deployer_call", lambda c, tool, args=None: calls.append(tool) or {})
+    monkeypatch.setattr(stages, "app_version", lambda c: "0.1.0")
+    stages.preflight(cfg, 1, 2)            # intake + implement need neither deployer nor app
+    assert calls == []
+    stages.preflight(cfg, 1, 7)
+    assert calls == ["get_status"]
+    monkeypatch.setattr(stages, "app_version", lambda c: None)
+    with pytest.raises(StageFailure, match="not answering"):
+        stages.preflight(cfg, 3, 5)
 
 
 def test_single_stage_rerun_loads_saved_state(cfg, monkeypatch):

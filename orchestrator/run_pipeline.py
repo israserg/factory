@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from claude_stage import StageFailure  # noqa: E402
 from config import Config  # noqa: E402
-from stages import STAGES, cleanup_after_failure  # noqa: E402
+from stages import STAGES, cleanup_after_failure, preflight  # noqa: E402
 
 
 def load_ctx(run_dir: Path, run_id: str, args) -> dict:
@@ -70,6 +70,15 @@ def main() -> int:
         logf.flush()
 
     log(f"run {run_id}  stages {first}-{last}  dry_run={args.dry_run} no_push={args.no_push}")
+    try:
+        preflight(cfg, first, last)
+        log("preflight: deployer and mynews are up")
+    except StageFailure as e:
+        ctx["status"], ctx["error"] = "failed", str(e)
+        log(f"FAILED preflight: {e}")
+        save_ctx(run_dir, ctx)
+        log("result: failed   agent cost: $0.000")
+        return 1
     total_cost = 0.0
     rc = 0
     for no, name, fn in STAGES:
