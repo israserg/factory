@@ -282,7 +282,10 @@ def commit(ctx, cfg, run_dir, log):
     git(work, "add", "-A")
     if not git(work, "diff", "--cached", "--name-only"):
         raise StageFailure("nothing to commit")
-    msg = (f"{ctx['issue_key']}: {ctx['title']}\n\n{ctx['summary']}\n\n"
+    subject = f"{ctx['issue_key']}: {ctx['title']}"
+    if len(subject) > 72:
+        subject = subject[:71].rstrip() + "…"
+    msg = (f"{subject}\n\n{ctx['summary']}\n\n"
            f"Version: {ctx['version']}\nJira: {ctx['issue_key']}\nPipeline run: {ctx['run_id']}\n\n{COAUTHOR}\n")
     git(work, "commit", "-q", "-m", msg)
     ctx["commit"] = git(work, "rev-parse", "--short", "HEAD")
