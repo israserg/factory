@@ -113,12 +113,20 @@ claude -p "<prompt>" --output-format json --mcp-config mcp\jira.json --strict-mc
   - Paths in JSON passed through bash `curl` break with backslashes; use forward slashes (`C:/mywork/...`).
   - Claude CLI is at `C:\Users\isras\.local\bin\claude.exe` (not on PATH in the bash tool).
 
-**M3: Custom Jira MCP (stdio)**
+**M3: Custom Jira MCP (stdio): DONE**
 - Python script using the `mcp` SDK; spawned by Claude per session (`command` + `args` in the MCP config), reads `JIRA_EMAIL`, `JIRA_TOKEN`, `JIRA_SITE` from the environment/`.env`.
 - Tools: `list_todo(project)`, `get_issue(key)`, `transition_issue(key, to_status)`, `add_comment(key, text)`.
 - Transition ids on the KAN board (verified): To Do = 11, In Progress = 21, Done = 31. Resolve by name at runtime via `GET /issue/{key}/transitions`.
 - Test with MCP Inspector, then interactively in `claude`.
 - Done when: Claude can read KAN-4 and move it between statuses.
+- Result: `factory/jira-mcp/` (`jira_client.py` REST client, `server.py` MCP wrapper). 8 offline unit tests (mocked HTTP) + 1 live test (`JIRA_LIVE=1`). Verified with a headless `claude -p` agent: listed To Do, read KAN-4, moved it In Progress and back (also checked via REST).
+- Learnings:
+  - stdio servers must never write to stdout (it is the protocol channel); log to stderr.
+  - The server loads `factory/.env` itself, so the MCP config file contains no secrets and can be committed or generated freely.
+  - Transitions are resolved by name at runtime (not hard-coded ids), matching either the transition name or the target status.
+  - JQL is built from validated project keys and escaped status strings; issue keys are regex-validated.
+  - In MCP config JSON, use forward slashes for Windows paths (backslashes get mangled by the shell and are easy to get wrong).
+  - A test comment ("jira-mcp live test") was left on KAN-4 by the live test.
 
 **M4: Orchestrator, one stage at a time**
 - Build a small `run_stage()` helper (calls `claude -p`, parses JSON, saves artifacts).
