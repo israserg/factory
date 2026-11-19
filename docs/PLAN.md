@@ -128,10 +128,19 @@ claude -p "<prompt>" --output-format json --mcp-config mcp\jira.json --strict-mc
   - In MCP config JSON, use forward slashes for Windows paths (backslashes get mangled by the shell and are easy to get wrong).
   - A test comment ("jira-mcp live test") was left on KAN-4 by the live test.
 
-**M4: Orchestrator, one stage at a time**
-- Build a small `run_stage()` helper (calls `claude -p`, parses JSON, saves artifacts).
-- Add stages 1 to 7 one by one, each runnable alone (`run_pipeline.py --only 2 --run-id X`).
-- Done when: every stage works standalone from saved state.
+**M4: Orchestrator, one stage at a time: DONE** (stages 1-7 implemented; 1-6 verified on a real run, 7 verified in M5)
+- `factory/orchestrator/`: `run_pipeline.py` (CLI, state in `state/<run-id>/run.json`), `stages.py` (7 stages), `claude_stage.py` (`claude -p` helper), `config.py`, `prompts/`. Flags: `--only N`, `--from/--to`, `--run-id`, `--dry-run` (no Jira writes, no push), `--no-push`.
+- Agent stages: 1 intake (Jira MCP + read-only tools), 2 implement (clone of mynews from GitHub, file edit tools + 2 whitelisted commands), 4 deploy (deployer MCP only), 7 close (Jira MCP only). Plain code: 3, 5 (pytest against the live app), 6 (git commit/merge/push).
+- Every agent result is re-verified by code (Jira status, VERSION bump, package contents, HEAD unmoved, `/version` after deploy), not trusted.
+- Verified: 11 offline unit tests (fake claude); real dry run on KAN-5: intake produced good instructions, implement made a 3-file change and passing tests, stage 3 correctly failed exactly the 2 new tests on the old app, stage 4 deployed v0.2.0, stage 5 passed, stage 6 committed; failure cleanup rolled the app back to 0.1.0.
+- Learnings:
+  - `claude -p --json-schema` returns the parsed result in `structured_output`: a clean contract between stages.
+  - `--setting-sources project` keeps user-level plugins/hooks out of pipeline agents (a trivial call dropped from ~$0.17 to ~$0.01) and `--strict-mcp-config` limits MCP servers to those we pass.
+  - Prompt goes in via stdin; tool allow-lists are per stage (intake dry-run does not even have the write tools).
+  - The implementing agent needs a way to verify itself: `mynews/scripts/test_local.py` (start app on a free port, run pytest, stop).
+  - Stage 2 clones from GitHub, so helper scripts must be pushed before a run.
+  - Agents tend to write tests that hard-code the new version string; prompts now forbid it.
+  - Costs reported by the CLI looked very low (~$0.01 per stage); treat as indicative.
 
 **M5: End to end**
 - Run the full pipeline on a simple Jira task. Then a failing case (bad patch, test still failing) and confirm rollback and Jira behavior.
