@@ -84,6 +84,56 @@ def test_second_run_while_running_is_rejected_and_new_run_clears_log(tmp_path, m
     wait_finished(c, 30)
 
 
+def statuses(s):
+    return {k: v["status"] for k, v in s["progress"].items()}
+
+
+def test_progress_row_all_boxes_done_after_a_good_run(tmp_path):
+    runner, c = make(tmp_path)
+    assert statuses(c.get("/api/state", headers=HOST).json()) == {k: "pending" for k in console.PROGRESS_KEYS}
+    c.post("/api/run", headers=POST, json={})
+    s = wait_finished(c)
+    assert statuses(s) == {k: "done" for k in console.PROGRESS_KEYS}
+    assert all(v["t0"] and v["t1"] and v["t1"] >= v["t0"] for v in s["progress"].values())   # timings recorded
+
+
+def test_progress_row_shows_where_a_run_failed(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_PIPELINE_MODE", "failed")
+    runner, c = make(tmp_path)
+    c.post("/api/run", headers=POST, json={})
+    st = statuses(wait_finished(c))
+    assert st["prep"] == "done" and all(st[str(i)] == "done" for i in (1, 2, 3, 4))
+    assert st["5"] == "failed" and st["6"] == "pending" and st["7"] == "pending" and st["finish"] == "failed"
+
+
+def test_progress_row_for_nothing_to_do_and_for_a_crash(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_PIPELINE_MODE", "stopped")
+    runner, c = make(tmp_path)
+    c.post("/api/run", headers=POST, json={})
+    st = statuses(wait_finished(c))
+    assert st["prep"] == "done" and st["1"] == "done" and st["2"] == "pending" and st["finish"] == "stopped"
+
+    monkeypatch.setenv("FAKE_PIPELINE_MODE", "crash")          # dies before the preflight line
+    c.post("/api/run", headers=POST, json={})
+    st = statuses(wait_finished(c))
+    assert st["prep"] == "failed" and st["1"] == "pending" and st["finish"] == "failed"
+
+
+def test_progress_shows_the_running_box_while_the_pipeline_works(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_PIPELINE_DELAY", "0.4")
+    runner, c = make(tmp_path)
+    c.post("/api/run", headers=POST, json={})
+    seen_running = set()
+    end = time.time() + 30
+    while time.time() < end:
+        s = c.get("/api/state", headers=HOST).json()
+        seen_running |= {k for k, v in s["progress"].items() if v["status"] == "running"}
+        if s["status"] != "running":
+            break
+        time.sleep(0.1)
+    assert {"prep", "1", "2", "3"} <= seen_running      # each box was visibly "running" at some point
+
+
 def test_dry_run_flag_reaches_the_pipeline(tmp_path):
     runner, c = make(tmp_path)
     c.post("/api/run", headers=POST, json={"dry_run": True})

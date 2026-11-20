@@ -88,6 +88,15 @@ def translate(raw: str) -> dict:
     return {"ts": ts, "level": level, "text": text}
 
 
+# The boxes of the progress row: preparation, the 7 pipeline stages, finish.
+PROGRESS_KEYS = ["prep"] + [str(i) for i in range(1, 8)] + ["finish"]
+
+
+def fresh_progress() -> dict:
+    """status: pending | running | done | failed | stopped; t0/t1: epoch seconds (None until known)."""
+    return {k: {"status": "pending", "t0": None, "t1": None} for k in PROGRESS_KEYS}
+
+
 class Runner:
     """Starts the pipeline subprocess, collects its output, exposes a snapshot for polling."""
 
@@ -99,6 +108,39 @@ class Runner:
         self.gen = 0                  # bumped on every new run so clients know to clear their log
         self.proc: subprocess.Popen | None = None
         self.final_word: str | None = None
+        self.progress = fresh_progress()
+
+    # --- progress tracking: derived from the pipeline's own log lines (call with the lock held)
+    def _mark(self, key: str, status: str) -> None:
+        p = self.progress[key]
+        now = time.time()
+        if status == "running" and p["t0"] is None:
+            p["t0"] = now
+        if status in ("done", "failed", "stopped"):
+            p["t1"] = now
+            if p["t0"] is None:
+                p["t0"] = now
+        p["status"] = status
+
+    def _close_running(self, status: str) -> None:
+        for k in PROGRESS_KEYS[:-1]:
+            if self.progress[k]["status"] == "running":
+                self._mark(k, status)
+
+    def _track(self, raw: str) -> None:
+        m = LINE_RE.match(raw)
+        msg = m.group(2) if m else raw
+        if msg.startswith("preflight:"):
+            self._mark("prep", "done")
+        elif msg.startswith("FAILED preflight"):
+            self._mark("prep", "failed")
+        elif (s := re.match(r"--- stage (\d): ", msg)):
+            self._close_running("done")
+            if self.progress["prep"]["status"] != "done":
+                self._mark("prep", "done")
+            self._mark(s.group(1), "running")
+        elif (s := re.match(r"FAILED at stage (\d)", msg)):
+            self._mark(s.group(1), "failed")
 
     def start(self, dry_run: bool) -> bool:
         with self.lock:
@@ -106,6 +148,8 @@ class Runner:
                 return False
             self.gen += 1
             self.lines, self.status, self.final_word = [], "running", None
+            self.progress = fresh_progress()
+            self._mark("prep", "running")
             self._add("dim", "Starting the pipeline" + (" (dry run: no Jira changes, no push)" if dry_run else ""))
             self.proc = subprocess.Popen(
                 self.command(dry_run), cwd=self.cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -125,6 +169,7 @@ class Runner:
                 continue
             entry = translate(raw)
             with self.lock:
+                self._track(raw)
                 self.lines.append(entry)
                 if (m := re.match(r"result: (\w+)", raw.split("] ", 1)[-1])):
                     self.final_word = m.group(1)
@@ -135,6 +180,9 @@ class Runner:
                            else "failed" if word == "failed" or rc != 0 else "done")
             if rc != 0 and word is None:
                 self._add("error", f"The pipeline exited unexpectedly (code {rc}).")
+            # close the progress row: whatever was running finished (ok) or broke (failed)
+            self._close_running("failed" if self.status == "failed" else "done")
+            self._mark("finish", self.status)
             self._add({"done": "ok", "stopped": "warn", "failed": "error"}[self.status],
                       {"done": "Finished successfully.", "stopped": "Finished: nothing to do.",
                        "failed": "Finished with errors."}[self.status])
@@ -144,7 +192,8 @@ class Runner:
             reset = gen != self.gen
             start = 0 if reset else max(0, since)
             return {"status": self.status, "gen": self.gen, "reset": reset,
-                    "lines": self.lines[start:], "next": len(self.lines)}
+                    "lines": self.lines[start:], "next": len(self.lines),
+                    "progress": {k: dict(v) for k, v in self.progress.items()}, "now": time.time()}
 
 
 def pipeline_command(dry_run: bool) -> list[str]:

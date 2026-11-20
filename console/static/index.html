@@ -5,15 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Run console</title>
   <style>
-    :root { --bg:#f6f7f9; --fg:#1d2330; --dim:#8a93a5; --card:#fff; --line:#e3e6ec;
+    :root { --bg:#f6f7f9; --fg:#1d2330; --dim:#8a93a5; --card:#fff; --line:#e3e6ec; --idle:#c3c8d2;
             --ok:#1a7f4b; --err:#c62828; --warn:#a15c00; --step:#0b57d0; --btn:#1a7f4b; --btnh:#146b3e; }
     @media (prefers-color-scheme: dark) {
-      :root { --bg:#14171d; --fg:#e6e9ef; --dim:#8a93a5; --card:#1c2029; --line:#2b3140;
+      :root { --bg:#14171d; --fg:#e6e9ef; --dim:#8a93a5; --card:#1c2029; --line:#2b3140; --idle:#3a4153;
               --ok:#4cc38a; --err:#ff7b72; --warn:#e3b341; --step:#79b8ff; --btn:#238a57; --btnh:#2da36a; }
     }
     * { box-sizing: border-box; }
     body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.45 system-ui,-apple-system,Segoe UI,sans-serif; }
-    main { max-width: 860px; margin: 0 auto; padding: 24px 16px 40px; }
+    main { width: max(75vw, 720px); max-width: 100%; margin: 0 auto; padding: 24px 16px 40px; }
+    @media (max-width: 1100px) { main { width: 100%; } }   /* small screens: use the full width */
     h1 { font-size: 1.1rem; margin: 0 0 18px; font-weight: 600; color: var(--dim); }
     .pills { display:flex; gap:8px; flex-wrap:wrap; margin-bottom: 18px; }
     .pill { font-size:.8rem; padding:3px 10px; border-radius:999px; border:1px solid var(--line); background:var(--card); }
@@ -26,13 +27,39 @@
     .svc:hover:not(:disabled) { border-color: var(--step); }
     .svc:disabled { opacity:.45; cursor:default; }
     #svcmsg { font-size:.85rem; } #svcmsg.ok { color:var(--ok); } #svcmsg.err { color:var(--err); }
-    #run { display:block; width:100%; padding: 34px 0; font-size: 2.2rem; font-weight: 700; letter-spacing:.04em;
-           color:#fff; background:var(--btn); border:0; border-radius:16px; cursor:pointer; }
+
+    .runrow { display:flex; align-items:center; gap:18px; flex-wrap:wrap; }
+    #run { padding: 14px 48px; font-size: 1.25rem; font-weight: 700; letter-spacing:.06em;
+           color:#fff; background:var(--btn); border:0; border-radius:12px; cursor:pointer; }
     #run:hover:not(:disabled) { background:var(--btnh); }
     #run:disabled { opacity:.55; cursor:progress; }
-    .opts { margin: 10px 2px 0; font-size:.85rem; color:var(--dim); }
+    .opts { font-size:.85rem; color:var(--dim); }
     .opts label { cursor:pointer; }
-    #status { margin: 22px 0 8px; font-weight:600; display:flex; align-items:center; gap:10px; }
+
+    /* pipeline row: connected boxes */
+    .pipeline { display:flex; align-items:stretch; margin: 22px 0 4px; padding: 6px 4px 12px; overflow-x:auto; }
+    .box { flex: 1 1 0; min-width: 70px; padding: 10px 4px 9px; text-align:center; background:var(--card);
+           border: 2px solid var(--idle); border-radius: 12px; transition: border-color .3s, background .3s; }
+    .box .n { font-size:.68rem; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); min-height:1em; }
+    .box .t { font-weight:600; font-size:.9rem; line-height:1.25; margin: 2px 0 3px; }
+    .box .s { font-size:.75rem; color:var(--dim); min-height:1.1em; font-variant-numeric: tabular-nums; }
+    .conn { flex: 0 0 14px; align-self:center; height:2px; background:var(--idle); transition: background .3s; }
+    .conn.on { background: var(--ok); }
+    .box.running { border-color: var(--ok); animation: pulse 1.1s ease-in-out infinite; }
+    .box.running .s { color: var(--ok); }
+    .box.done { border-color: var(--ok); } .box.done .s { color: var(--ok); }
+    .box.failed { border-color: var(--err); } .box.failed .s { color: var(--err); font-weight:600; }
+    .box.stopped { border-color: var(--warn); } .box.stopped .s { color: var(--warn); }
+    .box.finish.done { background: var(--ok); } .box.finish.done .n, .box.finish.done .t, .box.finish.done .s { color:#fff; }
+    .box.finish.failed { background: var(--err); } .box.finish.failed .n, .box.finish.failed .t, .box.finish.failed .s { color:#fff; }
+    .box.finish.stopped { background: var(--warn); } .box.finish.stopped .n, .box.finish.stopped .t, .box.finish.stopped .s { color:#fff; }
+    @keyframes pulse {
+      0%, 100% { border-color: var(--idle); box-shadow: 0 0 0 0 transparent; }
+      50%      { border-color: var(--ok);   box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 28%, transparent); }
+    }
+    @media (prefers-reduced-motion: reduce) { .box.running { animation: none; } }
+
+    #status { margin: 14px 0 8px; font-weight:600; display:flex; align-items:center; gap:10px; }
     .badge { font-size:.8rem; padding:2px 10px; border-radius:999px; color:#fff; background:var(--dim); }
     .badge.running { background:var(--step); } .badge.done { background:var(--ok); }
     .badge.failed { background:var(--err); } .badge.stopped { background:var(--warn); }
@@ -59,8 +86,12 @@
     <span id="svcmsg"></span>
   </div>
 
-  <button id="run">RUN</button>
-  <div class="opts"><label><input type="checkbox" id="dry"> Dry run (no Jira changes, no git push)</label></div>
+  <div class="runrow">
+    <button id="run">RUN</button>
+    <div class="opts"><label><input type="checkbox" id="dry"> Dry run (no Jira changes, no git push)</label></div>
+  </div>
+
+  <div class="pipeline" id="pipeline" aria-label="Pipeline progress"></div>
 
   <div id="status"><span class="badge" id="badge">idle</span><span id="statustext"></span></div>
   <div id="log"><div class="empty">The progress log will appear here.</div></div>
@@ -71,6 +102,56 @@
   const logEl = $("log"), btn = $("run");
   let next = 0, gen = -1, timer = null;
 
+  // ---- pipeline row -------------------------------------------------------
+  const BOXES = [
+    {k: "prep",   n: "",       t: "Preparing"},
+    {k: "1",      n: "Step 1", t: "Pick ticket"},
+    {k: "2",      n: "Step 2", t: "Implement"},
+    {k: "3",      n: "Step 3", t: "Test before"},
+    {k: "4",      n: "Step 4", t: "Deploy"},
+    {k: "5",      n: "Step 5", t: "Test after"},
+    {k: "6",      n: "Step 6", t: "Commit"},
+    {k: "7",      n: "Step 7", t: "Close ticket"},
+    {k: "finish", n: "",       t: "Finish"},
+  ];
+  const pipe = $("pipeline");
+  const boxEls = {}, connEls = [];
+  BOXES.forEach((b, i) => {
+    const el = document.createElement("div");
+    el.className = "box pending" + (b.k === "finish" ? " finish" : "");
+    el.innerHTML = '<div class="n"></div><div class="t"></div><div class="s"></div>';
+    el.querySelector(".n").textContent = b.n;
+    el.querySelector(".t").textContent = b.t;
+    pipe.appendChild(el); boxEls[b.k] = el;
+    if (i < BOXES.length - 1) {
+      const c = document.createElement("div"); c.className = "conn";
+      pipe.appendChild(c); connEls.push(c);
+    }
+  });
+  const mmss = (sec) => { sec = Math.max(0, Math.round(sec)); return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0"); };
+  const FINISH_TEXT = {done: "done", failed: "failed", stopped: "nothing to do"};
+  let lastProgress = null;
+
+  function renderPipeline(progress) {
+    if (!progress) return;
+    lastProgress = progress;
+    const nowSec = Date.now() / 1000;
+    BOXES.forEach((b, i) => {
+      const p = progress[b.k], el = boxEls[b.k];
+      el.className = "box " + p.status + (b.k === "finish" ? " finish" : "");
+      const s = el.querySelector(".s");
+      const secs = p.t0 ? ((p.t1 || nowSec) - p.t0) : 0;
+      if (p.status === "running") s.textContent = "running " + mmss(secs);
+      else if (p.status === "done" && b.k !== "finish") s.textContent = "✓ " + mmss(secs);
+      else if (p.status === "failed" && b.k !== "finish") s.textContent = "✗ failed";
+      else if (b.k === "finish" && p.status !== "pending") s.textContent = FINISH_TEXT[p.status] || p.status;
+      else s.textContent = "";
+      if (i < connEls.length) connEls[i].className = "conn" + (p.status === "done" ? " on" : "");
+    });
+  }
+  setInterval(() => renderPipeline(lastProgress), 1000);   // keeps the running timer ticking
+
+  // ---- log + status ---------------------------------------------------------
   function clearLog() { logEl.innerHTML = ""; }
   function addLines(lines) {
     const stick = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 40;
@@ -100,12 +181,14 @@
       if (s.reset) { clearLog(); }
       if (s.lines.length) addLines(s.lines);
       next = s.next; gen = s.gen;
+      renderPipeline(s.progress);
       setStatus(s.status);
       delay = s.status === "running" ? 700 : 3000;
     } catch (e) { $("statustext").textContent = "console server not reachable"; }
     timer = setTimeout(poll, delay);
   }
 
+  // ---- service pills and start buttons ----------------------------------------
   let starting = false;
   async function refreshEnv() {
     try {
@@ -121,11 +204,11 @@
   }
   async function pollEnv() { await refreshEnv(); setTimeout(pollEnv, 5000); }
 
-  async function startService(target, btn) {
+  async function startService(target, button) {
     starting = true;
     document.querySelectorAll(".svc").forEach((b) => (b.disabled = true));
-    const label = btn.textContent;
-    btn.textContent = "Starting…";
+    const label = button.textContent;
+    button.textContent = "Starting…";
     $("svcmsg").textContent = ""; $("svcmsg").className = "";
     try {
       const r = await fetch("/api/start/" + target, {method: "POST", headers: {"X-Console": "1"}});
@@ -135,13 +218,14 @@
     } catch (e) {
       $("svcmsg").textContent = "request failed: " + e.message; $("svcmsg").className = "err";
     }
-    btn.textContent = label;
+    button.textContent = label;
     starting = false;
     await refreshEnv();
   }
   $("start-mynews").onclick = (ev) => startService("mynews", ev.currentTarget);
   $("start-deployer").onclick = (ev) => startService("deployer", ev.currentTarget);
 
+  // ---- run ----------------------------------------------------------------------
   btn.onclick = async () => {
     btn.disabled = true;
     clearLog(); next = 0;
@@ -154,6 +238,7 @@
     poll();
   };
 
+  renderPipeline(Object.fromEntries(BOXES.map((b) => [b.k, {status: "pending", t0: null, t1: null}])));
   poll(); pollEnv();
 </script>
 </body>
