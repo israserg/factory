@@ -220,7 +220,8 @@ def implement(ctx, cfg, run_dir, log):
     prompt = render(cfg, "implement", branch=branch, python=py, instructions=instructions_text(ctx, run_dir))
     tools = ["Read", "Edit", "Write", "Glob", "Grep", f"Bash({py}:*)", "Bash(git status:*)", "Bash(git diff:*)"]
     res = run_claude(cfg, "implement", prompt, cwd=work, schema=IMPLEMENT_SCHEMA, allowed_tools=tools,
-                     run_dir=run_dir, permission_mode="acceptEdits")
+                     run_dir=run_dir, permission_mode="acceptEdits",
+                     disallowed_tools=["PowerShell"])   # only Bash with the whitelisted python commands
     ctx["_cost"] = res["cost_usd"]
     out = res["output"]
     if res["permission_denials"]:

@@ -14,6 +14,10 @@ Rules:
 - Build the deployment package with: `{{python}} scripts/package.py` (creates dist/mynews-<version>.zip).
 - Do NOT run git commit/push/checkout/reset, do not touch anything outside this directory, and do not start the
   app any other way. Only run the two commands above and read-only git commands (git status, git diff).
+- Tools: create and edit files ONLY with the Write and Edit tools (never with shell redirection or heredocs). Run
+  commands ONLY with the Bash tool, each exactly in the form `{{python}} scripts/test_local.py` or
+  `{{python}} scripts/package.py`: no `cd` (your working directory is already the repository), no `&&` or `;`
+  chaining, and no PowerShell (it is not available).
 - Never stop to ask questions: nobody is available to answer. Where the instructions leave something open, choose the
   simplest sensible default and mention that choice in `summary`.
 - Only if the task truly cannot be done (for example it contradicts the code or needs something we do not have),

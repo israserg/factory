@@ -37,7 +37,7 @@ def write_mcp_config(path: Path, cfg: Config, servers: list[str]) -> Path:
 
 def run_claude(cfg: Config, stage: str, prompt: str, *, cwd: Path, schema: dict, allowed_tools: list[str],
                run_dir: Path, mcp_servers: list[str] | None = None, limits_key: str | None = None,
-               permission_mode: str | None = None) -> dict:
+               permission_mode: str | None = None, disallowed_tools: list[str] | None = None) -> dict:
     max_turns, budget, timeout = cfg.limits[limits_key or stage]
     stage_dir = run_dir / stage
     stage_dir.mkdir(parents=True, exist_ok=True)
@@ -51,6 +51,8 @@ def run_claude(cfg: Config, stage: str, prompt: str, *, cwd: Path, schema: dict,
            "--max-turns", str(max_turns),
            "--max-budget-usd", str(budget),
            "--allowedTools", ",".join(allowed_tools)]
+    if disallowed_tools:                         # removed from the agent's toolbox, so it cannot even try them
+        cmd += ["--disallowedTools", ",".join(disallowed_tools)]
     if mcp_servers:
         cmd += ["--mcp-config", str(write_mcp_config(stage_dir / "mcp.json", cfg, mcp_servers))]
     if permission_mode:

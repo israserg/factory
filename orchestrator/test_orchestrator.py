@@ -39,6 +39,21 @@ def test_run_claude_parses_structured_output_and_builds_safe_command(cfg, tmp_pa
     assert (tmp_path / "run" / "intake" / "result.json").exists()
 
 
+def test_disallowed_tools_are_passed_to_the_cli_only_when_given(cfg, tmp_path):
+    run_claude(cfg, "intake", "p", cwd=tmp_path, schema=SCHEMA, allowed_tools=["Read"], run_dir=tmp_path / "a",
+               disallowed_tools=["PowerShell"])
+    argv = json.loads((tmp_path / "call.json").read_text())["argv"]
+    assert argv[argv.index("--disallowedTools") + 1] == "PowerShell"
+    run_claude(cfg, "intake", "p", cwd=tmp_path, schema=SCHEMA, allowed_tools=["Read"], run_dir=tmp_path / "b")
+    assert "--disallowedTools" not in json.loads((tmp_path / "call.json").read_text())["argv"]
+
+
+def test_implement_prompt_spells_out_which_tool_to_use_for_what(cfg):
+    p = stages.render(cfg, "implement", branch="b", python="C:/py/python.exe", instructions="i")
+    assert "ONLY with the Write and Edit tools" in p and "no PowerShell" in p
+    assert "`C:/py/python.exe scripts/test_local.py`" in p and "no `cd`" in p
+
+
 @pytest.mark.parametrize("mode,fragment", [("garbage", "unparsable"), ("error", "agent failed"),
                                            ("no_structured", "agent failed")])
 def test_run_claude_failures_become_stage_failures(cfg, tmp_path, monkeypatch, mode, fragment):
