@@ -44,6 +44,8 @@ class Config:
     prompts_dir: Path = FACTORY / "orchestrator" / "prompts"
     claude_cmd: list[str] = field(default_factory=list)
     project: str = "KAN"
+    assignee_name: str = "autong-r2pvi2pl4e"   # owner of tickets the pipeline works on (display name in Jira)
+    broken_status: str = "Build Broken"        # where tickets go when they cannot be implemented
     # per-stage safety limits: (max_turns, max_budget_usd, timeout_seconds)
     limits: dict = field(default_factory=lambda: {
         "intake": (20, 1.0, 600),
@@ -56,5 +58,7 @@ class Config:
     def load(cls) -> "Config":
         load_dotenv(FACTORY / ".env")
         cfg = cls(deployer_token=os.environ.get("DEPLOYER_TOKEN", ""))
+        cfg.assignee_name = os.environ.get("JIRA_ASSIGNEE_NAME", cfg.assignee_name)
+        cfg.broken_status = os.environ.get("JIRA_BROKEN_STATUS", cfg.broken_status)
         cfg.claude_cmd = _find_claude()
         return cfg

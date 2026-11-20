@@ -8,7 +8,7 @@ Board statuses: "To Do", "In Progress", "Done".
 Do the following, in order:
 
 1. Call `list_todo` for project {{project}}. If the list is empty, return outcome `no_tasks`.
-2. Take the OLDEST issue (first in the list) and call `get_issue` on it. The task text is the title plus the
+2. Take the OLDEST issue (first in the list; it should be **{{candidate}}**) and call `get_issue` on it. The task text is the title plus the
    description plus the comments. If a newer comment contradicts the description, the newer comment wins. If the
    description is empty or only repeats the title, the title alone is the task.
 3. Read the relevant code (README.md, app/, tests/, scripts/, VERSION) so your instructions are accurate.

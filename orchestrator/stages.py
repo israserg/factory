@@ -22,7 +22,7 @@ from claude_stage import StageFailure, run_claude
 from config import FACTORY, Config
 
 sys.path.insert(0, str(FACTORY / "jira-mcp"))
-from jira_client import Jira  # noqa: E402
+from jira_client import Jira, JiraError  # noqa: E402
 
 KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]+-\d+$")
 COAUTHOR = "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
@@ -117,34 +117,45 @@ INTAKE_SCHEMA = {
 }
 
 
+def assign_ticket(j: Jira, cfg: Config, key: str) -> None:
+    """Make the pipeline's owner account the assignee of the ticket."""
+    j.assign(key, j.resolve_assignee(cfg.project, cfg.assignee_name))
+
+
 def intake(ctx, cfg, run_dir, log):
     dry = ctx["dry_run"]
+    try:  # read-only: which ticket will the agent take? (the oldest in To Do)
+        todo = jira_client().list_issues(cfg.project)
+    except (JiraError, KeyError) as e:
+        raise StageFailure(f"cannot read Jira: {e!r}")
+    if not todo:
+        ctx["stop_reason"] = "no tasks in 'To Do'"
+        return "stop"
+    candidate = todo[0]["key"]
+    ctx["issue_key"] = candidate   # known from here on, so any later failure can be recorded on the ticket
+
     if dry:
         mode = ("DRY RUN: you must NOT change anything in Jira (no transition_issue, no add_comment; those tools are "
                 "not available). Ignore the .venv/ and dist/ folders when reading code.")
-        unclear = "do not comment on the issue (dry run)"
+        unclear = "do NOT comment on the issue (dry run)"
         ready = "do NOT move it (dry run)"
         tools = ["mcp__jira__list_todo", "mcp__jira__get_issue"]
     else:
         mode = "Ignore the .venv/ and dist/ folders when reading code."
-        unclear = "add a short comment with `add_comment` stating what is unclear and do NOT change its status"
+        unclear = "do NOT comment on the issue and do NOT change its status (the pipeline records the failure itself)"
         ready = "move the issue to 'In Progress' with `transition_issue`"
-        tools = ["mcp__jira__list_todo", "mcp__jira__get_issue", "mcp__jira__transition_issue",
-                 "mcp__jira__add_comment"]
-    prompt = render(cfg, "intake", project=cfg.project, mode_note=mode, unclear_action=unclear, ready_action=ready)
+        tools = ["mcp__jira__list_todo", "mcp__jira__get_issue", "mcp__jira__transition_issue"]
+    prompt = render(cfg, "intake", project=cfg.project, candidate=candidate, mode_note=mode,
+                    unclear_action=unclear, ready_action=ready)
     res = run_claude(cfg, "intake", prompt, cwd=cfg.mynews_repo, schema=INTAKE_SCHEMA,
                      allowed_tools=tools + ["Read", "Glob", "Grep"], run_dir=run_dir, mcp_servers=["jira"])
     ctx["_cost"] = res["cost_usd"]
     out = res["output"]
-    if out["outcome"] == "no_tasks":
-        ctx["stop_reason"] = "no tasks in 'To Do'"
-        return "stop"
-    if not KEY_RE.match(out["issue_key"]):
-        raise StageFailure(f"intake returned invalid issue key {out['issue_key']!r}")
-    ctx["issue_key"], ctx["title"] = out["issue_key"], out["title"]
+    if out["outcome"] == "no_tasks" or out["issue_key"] != candidate:
+        raise StageFailure(f"the agent took {out['issue_key']!r} ({out['outcome']}) but the oldest To Do is {candidate}")
+    ctx["title"] = out["title"]
     if out["outcome"] == "unclear":
-        ctx["stop_reason"] = f"{out['issue_key']} is unclear: {out['reason']}"
-        return "stop"
+        raise StageFailure(f"{candidate} cannot be implemented: {out['reason']}")
     if len(out["instructions_md"].strip()) < 100:
         raise StageFailure("intake returned empty/too short instructions")
     (run_dir / "instructions.md").write_text(out["instructions_md"], encoding="utf-8")
@@ -152,11 +163,17 @@ def intake(ctx, cfg, run_dir, log):
     log(f"task {out['issue_key']}: {out['title']}")
     if ctx["assumptions"]:
         log(f"assumptions (no questions asked): {'; '.join(ctx['assumptions'])}")
-    if not dry:  # verify the agent really moved it
-        status = jira_client().get_issue(out["issue_key"])["status"]
+    if not dry:  # verify the agent really moved it, then take ownership of the ticket
+        j = jira_client()
+        status = j.get_issue(candidate)["status"]
         if status != "In Progress":
-            raise StageFailure(f"{out['issue_key']} should be 'In Progress' but is '{status}'")
+            raise StageFailure(f"{candidate} should be 'In Progress' but is '{status}'")
         ctx["jira_in_progress"] = True
+        try:
+            assign_ticket(j, cfg, candidate)
+        except JiraError as e:
+            raise StageFailure(f"could not assign {candidate} to {cfg.assignee_name}: {e}")
+        log(f"{candidate} is In Progress and assigned to {cfg.assignee_name}")
 
 
 # ---------------------------------------------------------------- 2. implement
@@ -339,12 +356,23 @@ def close(ctx, cfg, run_dir, log):
     log(f"{ctx['issue_key']} is Done")
 
 
-def preflight(cfg: Config, first: int, last: int) -> None:
-    """Fail fast, before any Jira change or agent work, if something the selected stages need is down."""
+def preflight(cfg: Config, first: int, last: int, dry_run: bool = False) -> None:
+    """Fail fast, before any Jira change or agent work, if something the selected stages need is missing."""
     if any(n in range(first, last + 1) for n in (3, 4, 5)):
         deployer_call(cfg, "get_status")  # raises StageFailure if unreachable or token rejected
         if app_version(cfg) is None:
             raise StageFailure(f"mynews is not answering at {cfg.app_url}; deploy a baseline first")
+    if first <= 1 <= last and not dry_run:
+        # Failure handling needs the 'Build Broken' status and an assignable owner; without them a failed
+        # ticket could not be parked and the next run would pick it up again.
+        try:
+            j = jira_client()
+            if cfg.broken_status not in j.project_statuses(cfg.project):
+                raise StageFailure(f"Jira project {cfg.project} has no status '{cfg.broken_status}'; add it as a board "
+                                   f"column (failed tickets are moved there)")
+            j.resolve_assignee(cfg.project, cfg.assignee_name)
+        except (JiraError, KeyError) as e:
+            raise StageFailure(f"Jira preflight failed: {e!r}")
 
 
 STAGES = [
@@ -355,8 +383,8 @@ STAGES = [
 
 # ---------------------------------------------------------------- failure handling
 def cleanup_after_failure(ctx: dict, cfg: Config, stage_no: int, reason: str, log) -> None:
-    """Undo what can be undone: roll the app back if the new version is live and tests failed, return the
-    ticket to 'To Do' with an explanation. Never raises."""
+    """Undo what can be undone: roll the app back if the new version is live and tests failed; then record the
+    failure on the Jira ticket (comment, owner, status 'Build Broken'). Never raises."""
     try:
         if ctx.get("deployed_new_version") and stage_no == 5:
             r = deployer_call(cfg, "rollback")
@@ -364,13 +392,38 @@ def cleanup_after_failure(ctx: dict, cfg: Config, stage_no: int, reason: str, lo
             ctx["rolled_back"] = bool(r.get("ok"))
     except Exception as e:  # noqa: BLE001
         log(f"rollback failed: {e}")
-    if ctx.get("dry_run") or not ctx.get("jira_in_progress"):
+    key = ctx.get("issue_key")
+    if not key:
         return
+    if ctx.get("dry_run"):
+        log(f"dry run: {key} left untouched in Jira")
+        return
+    stage_name = {n: name for n, name, _ in STAGES}.get(stage_no, str(stage_no))
     try:
         j = jira_client()
-        j.add_comment(ctx["issue_key"], f"Automated pipeline failed at stage {stage_no}.\n\n{reason[:1500]}\n\n"
-                      f"Run: {ctx['run_id']}. The ticket was returned to To Do.")
-        j.transition(ctx["issue_key"], "To Do")
-        log(f"{ctx['issue_key']} returned to To Do")
+    except KeyError as e:
+        log(f"cannot update Jira, missing setting {e}")
+        return
+    note = " The app was rolled back to the previous version." if ctx.get("rolled_back") else ""
+    try:
+        j.add_comment(key, f"Automated pipeline: this task could not be completed (stage {stage_no}, {stage_name}).\n\n"
+                      f"{reason[:1500]}\n\n{note.strip()}\nThe ticket was moved to '{cfg.broken_status}'. "
+                      f"Run: {ctx['run_id']}")
     except Exception as e:  # noqa: BLE001
-        log(f"could not update Jira after failure: {e}")
+        log(f"could not comment on {key}: {e}")
+    try:
+        assign_ticket(j, cfg, key)
+    except Exception as e:  # noqa: BLE001
+        log(f"could not assign {key}: {e}")
+    try:
+        j.transition(key, cfg.broken_status)
+        ctx["jira_broken"] = True
+        log(f"{key}: commented and moved to {cfg.broken_status}")
+    except Exception as e:  # noqa: BLE001
+        log(f"could not move {key} to {cfg.broken_status}: {e}")
+        try:  # never leave it in 'To Do': the next run would pick the same ticket up again
+            if j.get_issue(key)["status"] == "To Do":
+                j.transition(key, "In Progress")
+                log(f"{key} parked in In Progress instead")
+        except Exception as e2:  # noqa: BLE001
+            log(f"could not park {key}: {e2}")

@@ -102,7 +102,7 @@ class Jira:
     def get_issue(self, key: str) -> dict:
         key = self._check_key(key)
         d = self._req("GET", f"/issue/{key}", params={
-            "fields": "summary,status,description,issuetype,labels,parent,comment"})
+            "fields": "summary,status,description,issuetype,labels,parent,comment,assignee"})
         f = d["fields"]
         comments = [
             {"author": c["author"]["displayName"], "created": c["created"], "text": adf_to_text(c["body"]).strip()}
@@ -115,6 +115,7 @@ class Jira:
             "type": f["issuetype"]["name"],
             "labels": f.get("labels", []),
             "parent": (f.get("parent") or {}).get("key"),
+            "assignee": (f.get("assignee") or {}).get("displayName"),
             "description": adf_to_text(f.get("description")).strip(),
             "comments": comments,
             "available_transitions": [t["name"] for t in self.transitions(key)],
@@ -137,6 +138,33 @@ class Jira:
         self._req("POST", f"/issue/{key}/transitions", json={"transition": {"id": match["id"]}})
         after = self._req("GET", f"/issue/{key}", params={"fields": "status"})["fields"]["status"]["name"]
         return {"key": key, "from": before, "to": after}
+
+    def project_statuses(self, project: str) -> set[str]:
+        """All status names used by the project's workflows."""
+        project = project.strip().upper()
+        if not PROJECT_RE.match(project):
+            raise JiraError(f"invalid project key: {project!r}")
+        data = self._req("GET", f"/project/{project}/statuses")
+        return {s["name"] for issue_type in data for s in issue_type.get("statuses", [])}
+
+    def resolve_assignee(self, project: str, display_name: str) -> str:
+        """accountId of the assignable user whose display name matches exactly (case-insensitive)."""
+        project = project.strip().upper()
+        if not PROJECT_RE.match(project):
+            raise JiraError(f"invalid project key: {project!r}")
+        users = self._req("GET", "/user/assignable/search",
+                          params={"project": project, "query": display_name, "maxResults": 50})
+        hits = [u for u in users if u.get("displayName", "").lower() == display_name.strip().lower()
+                and u.get("active", True)]
+        if not hits:
+            raise JiraError(f"no assignable user named {display_name!r} in project {project}")
+        if len(hits) > 1:
+            raise JiraError(f"{len(hits)} assignable users are named {display_name!r}; cannot choose")
+        return hits[0]["accountId"]
+
+    def assign(self, key: str, account_id: str) -> None:
+        key = self._check_key(key)
+        self._req("PUT", f"/issue/{key}/assignee", json={"accountId": account_id})
 
     def add_comment(self, key: str, text: str) -> dict:
         key = self._check_key(key)

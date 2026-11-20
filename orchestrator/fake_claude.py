@@ -20,6 +20,14 @@ elif mode == "intake_ambiguous":
                           "outcome": "ready", "issue_key": "KAN-9", "title": "Make it nicer",
                           "instructions_md": "## Task\n" + "Make the header bigger. " * 8 + "\n## Assumptions\n- 'nicer' = larger title",
                           "assumptions": ["'nicer' interpreted as a larger header title", "  "], "reason": ""}}))
+elif mode in ("intake_unclear", "intake_other"):
+    print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "num_turns": 2,
+                      "total_cost_usd": 0.01, "permission_denials": [],
+                      "structured_output": {
+                          "outcome": "unclear" if mode == "intake_unclear" else "ready",
+                          "issue_key": "KAN-9" if mode == "intake_unclear" else "KAN-77",
+                          "title": "Hook up the production database", "instructions_md": "",
+                          "assumptions": [], "reason": "needs credentials we do not have"}}))
 elif mode == "no_structured":
     print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "free text"}))
 else:

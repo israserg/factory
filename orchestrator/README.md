@@ -4,7 +4,7 @@ Runs the "task to production" pipeline. The order of stages is plain code; the w
 
 | # | Stage | Who | What |
 |---|---|---|---|
-| 1 | intake | agent + Jira MCP | take the oldest To Do issue, move it to In Progress, write `instructions.md` (or comment and stop if unclear) |
+| 1 | intake | agent + Jira MCP | take the oldest To Do issue, move it to In Progress and assign it to the owner, write `instructions.md` (a ticket that cannot be implemented at all fails the run, see below) |
 | 2 | implement | agent (edit tools) | fresh clone of mynews, branch `task/KEY`, implement, add tests, bump VERSION, build the package |
 | 3 | test_before | code | run tests against the running OLD app; they must fail (only the new tests) |
 | 4 | deploy | agent + deployer MCP | `apply_patch`, then we verify `/version` ourselves |
@@ -12,7 +12,11 @@ Runs the "task to production" pipeline. The order of stages is plain code; the w
 | 6 | commit | code | commit on the task branch, fast-forward `main`, push both |
 | 7 | close | agent + Jira MCP | comment with commit and test results, move to Done |
 
-On failure after stage 1: the app is rolled back if the new version is live and tests failed (stage 5), and the Jira issue gets an explanatory comment and returns to To Do.
+**Failure handling.** If a task cannot be completed for any reason (agent says it cannot be implemented, tests fail, deploy fails, commit/close fails), the run stops and the pipeline records it on the ticket: a comment with the stage and the reason, the owner set, and the status moved to **Build Broken**. If the new version was already live (stage 5 failure) the app is rolled back first. Tickets in Build Broken are not picked up again. If the move to Build Broken is impossible, a ticket still in To Do is parked in In Progress so the next run cannot loop on it. Problems before a ticket is picked (deployer down, Jira unreachable) leave Jira untouched. A `--dry-run` never writes to Jira.
+
+**Ownership.** When a ticket is picked it is assigned to the Jira user whose display name is `JIRA_ASSIGNEE_NAME` (default `autong-r2pvi2pl4e`, must be assignable in the project), and it stays assigned when the ticket fails or completes.
+
+**Preflight** (before anything is touched): the deployer and mynews are up, and, for real runs, the Jira status `Build Broken` exists in the project and the owner account is assignable.
 
 ## Prerequisites
 - `factory/.env` with `JIRA_*` and `DEPLOYER_TOKEN`

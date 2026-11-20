@@ -56,7 +56,11 @@ def translate(raw: str) -> dict:
     elif msg.startswith("run "):
         level, text = "dim", "Run started: " + msg
     elif msg.startswith("preflight:"):
-        level, text = "ok", "Checks passed: deployer and mynews are up"
+        level, text = "ok", "Checks passed: deployer, mynews and Jira are ready"
+    elif "Build Broken" in msg and ": commented and moved to" in msg:
+        level, text = "error", f"Ticket {msg.split(':')[0]} was commented and moved to Build Broken"
+    elif " is In Progress and assigned to " in msg:
+        level, text = "ok", msg.replace(" is In Progress and assigned to ", " is In Progress, owner: ")
     elif msg.startswith("FAILED"):
         level, text = "error", msg
     elif msg.startswith("stopped:"):

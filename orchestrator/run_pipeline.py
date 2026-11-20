@@ -71,8 +71,8 @@ def main() -> int:
 
     log(f"run {run_id}  stages {first}-{last}  dry_run={args.dry_run} no_push={args.no_push}")
     try:
-        preflight(cfg, first, last)
-        log("preflight: deployer and mynews are up")
+        preflight(cfg, first, last, args.dry_run)
+        log("preflight: all checks passed")
     except StageFailure as e:
         ctx["status"], ctx["error"] = "failed", str(e)
         log(f"FAILED preflight: {e}")

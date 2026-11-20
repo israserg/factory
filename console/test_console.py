@@ -40,6 +40,10 @@ def test_translate_gives_friendly_messages():
     assert bad["level"] == "error"
     assert t("[12:00:05] FAILED at stage 5 (x): boom")["level"] == "error"
     assert t("plain traceback line")["level"] == "info"   # lines without a timestamp pass through
+    broken = t("[12:00:06] KAN-8: commented and moved to Build Broken")
+    assert broken["level"] == "error" and "KAN-8" in broken["text"] and "Build Broken" in broken["text"]
+    own = t("[12:00:07] KAN-8 is In Progress and assigned to autong-r2pvi2pl4e")
+    assert own["level"] == "ok" and "owner: autong-r2pvi2pl4e" in own["text"]
 
 
 def test_full_run_streams_friendly_log_and_ends_done(tmp_path):

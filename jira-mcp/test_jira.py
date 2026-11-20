@@ -91,6 +91,57 @@ def test_http_errors_become_jira_errors():
         j.get_issue("KAN-999")
 
 
+USERS = [
+    {"accountId": "app-1", "displayName": "autong", "accountType": "app", "active": True},
+    {"accountId": "user-2", "displayName": "autong-r2pvi2pl4e", "accountType": "atlassian", "active": True},
+    {"accountId": "user-3", "displayName": "Sergey", "accountType": "atlassian", "active": True},
+]
+
+
+def test_resolve_assignee_matches_display_name_exactly():
+    seen = {}
+
+    def handler(req):
+        seen["params"] = dict(req.url.params)
+        return httpx.Response(200, json=USERS)
+
+    j = make_jira(handler)
+    assert j.resolve_assignee("kan", "AUTONG-r2pvi2pl4e") == "user-2"      # case-insensitive, not a prefix match
+    assert seen["params"]["project"] == "KAN" and seen["params"]["query"] == "AUTONG-r2pvi2pl4e"
+
+
+def test_resolve_assignee_errors_on_none_or_ambiguous():
+    j = make_jira(lambda r: httpx.Response(200, json=USERS))
+    with pytest.raises(JiraError, match="no assignable user named 'ghost'"):
+        j.resolve_assignee("KAN", "ghost")
+    twins = USERS + [{"accountId": "user-9", "displayName": "Sergey", "accountType": "atlassian", "active": True}]
+    with pytest.raises(JiraError, match="2 assignable users"):
+        make_jira(lambda r: httpx.Response(200, json=twins)).resolve_assignee("KAN", "Sergey")
+    inactive = [{**USERS[1], "active": False}]
+    with pytest.raises(JiraError, match="no assignable user"):
+        make_jira(lambda r: httpx.Response(200, json=inactive)).resolve_assignee("KAN", "autong-r2pvi2pl4e")
+
+
+def test_assign_puts_account_id():
+    seen = {}
+
+    def handler(req):
+        seen.update(method=req.method, path=req.url.path, body=json.loads(req.content))
+        return httpx.Response(204)
+
+    make_jira(handler).assign("kan-5", "user-2")
+    assert seen == {"method": "PUT", "path": "/rest/api/3/issue/KAN-5/assignee", "body": {"accountId": "user-2"}}
+
+
+def test_project_statuses_collects_names_across_issue_types():
+    data = [{"name": "Task", "statuses": [{"name": "To Do"}, {"name": "Build Broken"}]},
+            {"name": "Epic", "statuses": [{"name": "To Do"}, {"name": "Done"}]}]
+    j = make_jira(lambda r: httpx.Response(200, json=data))
+    assert j.project_statuses("KAN") == {"To Do", "Build Broken", "Done"}
+    with pytest.raises(JiraError):
+        j.project_statuses("KAN OR 1=1")
+
+
 def test_comment_rejects_empty():
     with pytest.raises(JiraError):
         make_jira(lambda r: httpx.Response(500)).add_comment("KAN-4", "   ")
