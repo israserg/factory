@@ -46,6 +46,7 @@ class Config:
     project: str = "KAN"
     assignee_name: str = "autong-r2pvi2pl4e"   # owner of tickets the pipeline works on (display name in Jira)
     broken_status: str = "Build Broken"        # where tickets go when they cannot be implemented
+    app_name: str = "mynews"                   # every ticket title must name the target application
     # per-stage safety limits: (max_turns, max_budget_usd, timeout_seconds)
     limits: dict = field(default_factory=lambda: {
         "intake": (20, 1.0, 600),

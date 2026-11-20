@@ -117,6 +117,11 @@ INTAKE_SCHEMA = {
 }
 
 
+def title_names_app(title: str, app_name: str) -> bool:
+    """True if the app name appears in the title as a whole word, case-insensitive ('MyNews: ...' yes, 'mynewsfeed' no)."""
+    return re.search(rf"(?<![A-Za-z0-9_]){re.escape(app_name)}(?![A-Za-z0-9_])", title, re.IGNORECASE) is not None
+
+
 def assign_ticket(j: Jira, cfg: Config, key: str) -> None:
     """Make the pipeline's owner account the assignee of the ticket."""
     j.assign(key, j.resolve_assignee(cfg.project, cfg.assignee_name))
@@ -133,6 +138,11 @@ def intake(ctx, cfg, run_dir, log):
         return "stop"
     candidate = todo[0]["key"]
     ctx["issue_key"] = candidate   # known from here on, so any later failure can be recorded on the ticket
+    ctx["title"] = todo[0]["summary"]
+    if not title_names_app(ctx["title"], cfg.app_name):  # strict ticket format, checked by code before any agent runs
+        raise StageFailure(f"{candidate} does not follow the required format: the title must contain the target "
+                           f"application name '{cfg.app_name}' (title was: {ctx['title']!r}). "
+                           f"Please rewrite the title, e.g. '{cfg.app_name}: <what to change>'.")
 
     if dry:
         mode = ("DRY RUN: you must NOT change anything in Jira (no transition_issue, no add_comment; those tools are "

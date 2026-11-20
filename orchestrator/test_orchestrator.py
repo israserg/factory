@@ -125,8 +125,11 @@ class FakeJira:
         self.fail_transition_to = set(fail_transition_to)
         self.calls = []
 
+    summary = "mynews: s"
+
     def list_issues(self, project="KAN", status="To Do", limit=20):
-        return [{"key": k, "summary": "s", "status": "To Do", "type": "Task", "created": ""} for k in self.todo]
+        return [{"key": k, "summary": self.summary, "status": "To Do", "type": "Task", "created": ""}
+                for k in self.todo]
 
     def get_issue(self, key):
         return {"key": key, "status": self.status}
@@ -191,6 +194,41 @@ def test_intake_with_empty_todo_stops_without_calling_the_agent(cfg, tmp_path, m
     ctx = {"dry_run": False, "run_id": "t"}
     assert stages.intake(ctx, cfg, run_dir, logged.append) == "stop"
     assert ctx["stop_reason"] == "no tasks in 'To Do'" and not (tmp_path / "call.json").exists()
+
+
+@pytest.mark.parametrize("title,ok", [
+    ("mynews: show the count in the header", True),
+    ("Show the count in the MyNews header", True),          # case-insensitive
+    ("[mynews] fix header", True), ("fix the mynews-ui", True),
+    ("Show newsfeed as a table", False),                    # no app name
+    ("Fix mynewsfeed", False), ("Fix my news", False),      # whole word only
+    ("", False),
+])
+def test_title_must_name_the_application(title, ok):
+    assert stages.title_names_app(title, "mynews") is ok
+
+
+def test_ticket_without_app_name_in_title_fails_before_any_agent_runs(cfg, tmp_path, monkeypatch, jira):
+    run_dir, logged = _intake_env(cfg, tmp_path, monkeypatch, "ok")
+    jira.summary = "Show newsfeed as a table"
+    ctx = {"dry_run": False, "run_id": "t"}
+    with pytest.raises(StageFailure, match=r"KAN-9 does not follow the required format.*'mynews'.*Show newsfeed"):
+        stages.intake(ctx, cfg, run_dir, logged.append)
+    assert ctx["issue_key"] == "KAN-9"                       # so cleanup comments and moves it to Build Broken
+    assert not (tmp_path / "call.json").exists()             # no agent was started, no cost
+    assert jira.calls == []                                  # intake itself wrote nothing; cleanup does
+
+
+def test_non_conforming_title_ends_in_build_broken_with_a_helpful_comment(cfg, tmp_path, monkeypatch, jira):
+    run_dir, logged = _intake_env(cfg, tmp_path, monkeypatch, "ok")
+    jira.summary = "How old is my grandmother"
+    ctx = {"dry_run": False, "run_id": "t"}
+    with pytest.raises(StageFailure) as e:
+        stages.intake(ctx, cfg, run_dir, logged.append)
+    stages.cleanup_after_failure(ctx, cfg, 1, str(e.value), logged.append)
+    comment = next(c for c in jira.calls if c[0] == "comment")[2]
+    assert "must contain the target application name 'mynews'" in comment and "How old is my grandmother" in comment
+    assert ("transition", "KAN-9", "Build Broken") in jira.calls
 
 
 def test_task_that_cannot_be_implemented_is_a_failure_not_a_quiet_stop(cfg, tmp_path, monkeypatch, jira):

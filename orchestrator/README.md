@@ -14,6 +14,8 @@ Runs the "task to production" pipeline. The order of stages is plain code; the w
 
 **Failure handling.** If a task cannot be completed for any reason (agent says it cannot be implemented, tests fail, deploy fails, commit/close fails), the run stops and the pipeline records it on the ticket: a comment with the stage and the reason, the owner set, and the status moved to **Build Broken**. If the new version was already live (stage 5 failure) the app is rolled back first. Tickets in Build Broken are not picked up again. If the move to Build Broken is impossible, a ticket still in To Do is parked in In Progress so the next run cannot loop on it. Problems before a ticket is picked (deployer down, Jira unreachable) leave Jira untouched. A `--dry-run` never writes to Jira.
 
+**Ticket format.** The title of every ticket must contain the target application name (`mynews`, whole word, case-insensitive; e.g. `mynews: show the item count in the header`). This is checked by code in stage 1, before any agent is started: a ticket that does not follow the format fails the run (comment explaining the rule, owner set, status Build Broken) and costs nothing. The name is `app_name` in `config.py`.
+
 **Ownership.** When a ticket is picked it is assigned to the Jira user whose display name is `JIRA_ASSIGNEE_NAME` (default `autong-r2pvi2pl4e`, must be assignable in the project), and it stays assigned when the ticket fails or completes.
 
 **Preflight** (before anything is touched): the deployer and mynews are up, and, for real runs, the Jira status `Build Broken` exists in the project and the owner account is assignable.
