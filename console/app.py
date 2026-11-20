@@ -7,6 +7,7 @@ Only one run at a time. Bound to localhost; state-changing requests need a custo
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -168,6 +169,53 @@ def check_env() -> dict:
     return out
 
 
+RUNTIME = Path(os.environ.get("RUNTIME_DIR", r"C:\mywork\runtime"))
+_start_lock = threading.Lock()
+
+
+def deployer_tool(name: str, timeout: float = 60) -> dict:
+    """Call a deployer MCP tool (JSON-RPC over HTTP, stateless) and return its parsed result."""
+    r = httpx.post(DEPLOYER_URL, timeout=timeout, json={
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": {}}},
+        headers={"Authorization": f"Bearer {os.environ.get('DEPLOYER_TOKEN', '')}",
+                 "Accept": "application/json, text/event-stream"})
+    r.raise_for_status()
+    return json.loads(r.json()["result"]["content"][0]["text"])
+
+
+def start_deployer() -> dict:
+    """Launch the deployer MCP server detached in the background (same as scripts/start-deployer.ps1)."""
+    if check_env()["deployer"]:
+        return {"ok": True, "message": "Deployer MCP is already running."}
+    RUNTIME.mkdir(parents=True, exist_ok=True)
+    subprocess.Popen(
+        [sys.executable, str(FACTORY / "mcp-deployer" / "server.py")], cwd=FACTORY / "mcp-deployer",
+        stdout=open(RUNTIME / "deployer.log", "ab"), stderr=open(RUNTIME / "deployer.err.log", "ab"),
+        stdin=subprocess.DEVNULL,
+        creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW)
+    for _ in range(40):
+        time.sleep(0.5)
+        if check_env()["deployer"]:
+            return {"ok": True, "message": "Deployer MCP started."}
+    return {"ok": False, "message": f"Deployer did not come up in 20 s; see {RUNTIME / 'deployer.err.log'}"}
+
+
+def start_mynews() -> dict:
+    """Ask the deployer to start the deployed mynews version (the deployer owns the app's lifecycle)."""
+    env = check_env()
+    if env["mynews"]:
+        return {"ok": True, "message": f"mynews is already running (v{env['mynews']})."}
+    if not env["deployer"]:
+        return {"ok": False, "message": "The deployer is not running. Click 'Start Deployer MCP' first."}
+    try:
+        res = deployer_tool("restart")
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "message": f"Deployer call failed: {e}"}
+    if res.get("started"):
+        return {"ok": True, "message": f"mynews started (v{res.get('version')})."}
+    return {"ok": False, "message": f"mynews did not start: {res.get('error', res)}"}
+
+
 def create_app(runner: Runner) -> FastAPI:
     app = FastAPI(title="mynews run console")
     allowed_hosts = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
@@ -199,6 +247,20 @@ def create_app(runner: Runner) -> FastAPI:
         if not runner.start(dry):
             raise HTTPException(409, "a run is already in progress")
         return {"started": True, "dry_run": dry}
+
+    @app.post("/api/start/{target}", dependencies=[Depends(guard)])
+    def start_service(target: str):
+        actions = {"mynews": start_mynews, "deployer": start_deployer}
+        if target not in actions:
+            raise HTTPException(404, "unknown target")
+        if runner.status == "running":
+            raise HTTPException(409, "a pipeline run is in progress; wait until it finishes")
+        if not _start_lock.acquire(blocking=False):
+            raise HTTPException(409, "another start is already in progress")
+        try:
+            return actions[target]()
+        finally:
+            _start_lock.release()
 
     return app
 

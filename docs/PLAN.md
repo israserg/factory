@@ -158,6 +158,7 @@ claude -p "<prompt>" --output-format json --mcp-config mcp\jira.json --strict-mc
 - `factory/console/`: FastAPI page on `127.0.0.1:8800` with one big RUN button, a dry-run checkbox, deployer/mynews status pills and a progress log. It runs `orchestrator/run_pipeline.py` as a subprocess and translates its log lines into plain messages; one run at a time; a new run clears the log. Start/stop: `scripts/start-console.ps1`, `scripts/stop-console.ps1`.
 - Added a pipeline **preflight** (deployer + mynews up) that fails before any Jira change; before, a down deployer was only noticed at stage 4 after the ticket had been moved.
 - Safety: localhost only, custom `X-Console` header + Host check against cross-site triggers and DNS rebinding.
+- Demo buttons (2026-11-20): **Start Mynews** (via the deployer's `restart` tool; needs the deployer up) and **Start Deployer MCP** (detached background process). Verified by hand through the API (down -> start deployer -> start mynews -> already-running messages); no automated tests by choice.
 - Verified: 9 offline tests with a fake pipeline; a real dry run through the HTTP API ended "nothing to do" (empty To Do). Not shown: progress inside an agent stage (it is one `claude -p` call; streaming `stream-json` would allow it); no Stop button.
 
 ## 5. Key risks / things to decide as we go

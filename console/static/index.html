@@ -20,6 +20,12 @@
     .pill.up::before, .pill.down::before { content:""; display:inline-block; width:8px; height:8px; border-radius:50%;
                                            margin-right:6px; background:var(--dim); }
     .pill.up::before { background: var(--ok); } .pill.down::before { background: var(--err); }
+    .services { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin: -6px 0 18px; }
+    .svc { font: inherit; font-size:.85rem; padding:5px 14px; border-radius:8px; cursor:pointer; color:var(--fg);
+           background:var(--card); border:1px solid var(--line); }
+    .svc:hover:not(:disabled) { border-color: var(--step); }
+    .svc:disabled { opacity:.45; cursor:default; }
+    #svcmsg { font-size:.85rem; } #svcmsg.ok { color:var(--ok); } #svcmsg.err { color:var(--err); }
     #run { display:block; width:100%; padding: 34px 0; font-size: 2.2rem; font-weight: 700; letter-spacing:.04em;
            color:#fff; background:var(--btn); border:0; border-radius:16px; cursor:pointer; }
     #run:hover:not(:disabled) { background:var(--btnh); }
@@ -46,6 +52,11 @@
   <div class="pills">
     <span class="pill" id="p-deployer">deployer</span>
     <span class="pill" id="p-mynews">mynews</span>
+  </div>
+  <div class="services">
+    <button class="svc" id="start-mynews">Start Mynews</button>
+    <button class="svc" id="start-deployer">Start Deployer MCP</button>
+    <span id="svcmsg"></span>
   </div>
 
   <button id="run">RUN</button>
@@ -95,16 +106,41 @@
     timer = setTimeout(poll, delay);
   }
 
-  async function pollEnv() {
+  let starting = false;
+  async function refreshEnv() {
     try {
       const e = await (await fetch("/api/env")).json();
       $("p-deployer").className = "pill " + (e.deployer ? "up" : "down");
       $("p-deployer").textContent = "deployer " + (e.deployer ? "up" : "down");
       $("p-mynews").className = "pill " + (e.mynews ? "up" : "down");
       $("p-mynews").textContent = e.mynews ? "mynews v" + e.mynews : "mynews down";
+      // a start button is only useful while its service is down
+      $("start-mynews").disabled = starting || !!e.mynews;
+      $("start-deployer").disabled = starting || e.deployer;
     } catch (e) {}
-    setTimeout(pollEnv, 5000);
   }
+  async function pollEnv() { await refreshEnv(); setTimeout(pollEnv, 5000); }
+
+  async function startService(target, btn) {
+    starting = true;
+    document.querySelectorAll(".svc").forEach((b) => (b.disabled = true));
+    const label = btn.textContent;
+    btn.textContent = "Starting…";
+    $("svcmsg").textContent = ""; $("svcmsg").className = "";
+    try {
+      const r = await fetch("/api/start/" + target, {method: "POST", headers: {"X-Console": "1"}});
+      const d = await r.json();
+      $("svcmsg").textContent = d.message || d.detail || "unexpected response";
+      $("svcmsg").className = d.ok ? "ok" : "err";
+    } catch (e) {
+      $("svcmsg").textContent = "request failed: " + e.message; $("svcmsg").className = "err";
+    }
+    btn.textContent = label;
+    starting = false;
+    await refreshEnv();
+  }
+  $("start-mynews").onclick = (ev) => startService("mynews", ev.currentTarget);
+  $("start-deployer").onclick = (ev) => startService("deployer", ev.currentTarget);
 
   btn.onclick = async () => {
     btn.disabled = true;
