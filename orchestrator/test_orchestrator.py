@@ -256,6 +256,23 @@ def test_task_that_cannot_be_implemented_is_a_failure_not_a_quiet_stop(cfg, tmp_
     assert "mcp__jira__add_comment" not in argv[argv.index("--allowedTools") + 1]   # the agent may not comment
 
 
+@pytest.mark.parametrize("dry", [True, False])
+def test_intake_may_read_the_feed_domain_only(cfg, tmp_path, monkeypatch, jira, dry):
+    run_dir, logged = _intake_env(cfg, tmp_path, monkeypatch, "intake_ambiguous")
+    stages.intake({"dry_run": dry, "run_id": "t"}, cfg, run_dir, logged.append)
+    argv = json.loads((tmp_path / "call.json").read_text())["argv"]
+    tools = argv[argv.index("--allowedTools") + 1].split(",")
+    assert "WebFetch(domain:tldr.tech)" in tools        # the feed's own domain
+    assert "WebFetch" not in tools                       # never the whole internet
+    assert ("mcp__jira__transition_issue" in tools) is (not dry)   # dry run still has no Jira write tools
+
+
+def test_intake_prompt_treats_fetched_web_content_as_untrusted_data(cfg):
+    p = stages.render(cfg, "intake", project="KAN", candidate="KAN-1", mode_note="m", unclear_action="u",
+                      ready_action="r")
+    assert "WebFetch" in p and "only the tldr.tech domain" in p and "untrusted DATA" in p
+
+
 def test_agent_taking_a_different_ticket_is_rejected(cfg, tmp_path, monkeypatch, jira):
     run_dir, logged = _intake_env(cfg, tmp_path, monkeypatch, "intake_other")
     with pytest.raises(StageFailure, match="oldest To Do is KAN-9"):

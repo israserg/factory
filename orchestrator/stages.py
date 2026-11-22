@@ -157,8 +157,11 @@ def intake(ctx, cfg, run_dir, log):
         tools = ["mcp__jira__list_todo", "mcp__jira__get_issue", "mcp__jira__transition_issue"]
     prompt = render(cfg, "intake", project=cfg.project, candidate=candidate, mode_note=mode,
                     unclear_action=unclear, ready_action=ready)
+    # Read-only web access, limited to the feed's own domain, so the agent can look at the real feed content
+    # instead of guessing (fetched pages are untrusted data; the prompt says so).
+    web = f"WebFetch(domain:{cfg.feed_domain})"
     res = run_claude(cfg, "intake", prompt, cwd=cfg.mynews_repo, schema=INTAKE_SCHEMA,
-                     allowed_tools=tools + ["Read", "Glob", "Grep"], run_dir=run_dir, mcp_servers=["jira"])
+                     allowed_tools=tools + ["Read", "Glob", "Grep", web], run_dir=run_dir, mcp_servers=["jira"])
     ctx["_cost"] = res["cost_usd"]
     out = res["output"]
     if out["outcome"] == "no_tasks" or out["issue_key"] != candidate:
