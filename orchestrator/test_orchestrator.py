@@ -48,6 +48,17 @@ def test_disallowed_tools_are_passed_to_the_cli_only_when_given(cfg, tmp_path):
     assert "--disallowedTools" not in json.loads((tmp_path / "call.json").read_text())["argv"]
 
 
+def test_both_prompts_forbid_tests_that_pass_vacuously(cfg):
+    intake = stages.render(cfg, "intake", project="KAN", candidate="KAN-1", mode_note="m", unclear_action="u",
+                           ready_action="r")
+    impl = stages.render(cfg, "implement", branch="b", python="p", instructions="i")
+    for prompt in (intake, impl):
+        assert "never pass vacuously" in prompt and "assert any(...)" in prompt
+        assert "if x is None: continue" in prompt
+    assert "plan the fix at the data source" in intake          # intake: look at where the data really lives
+    assert "return outcome `failed`" in impl                    # implement: no passing-by-default test
+
+
 def test_implement_prompt_spells_out_which_tool_to_use_for_what(cfg):
     p = stages.render(cfg, "implement", branch="b", python="C:/py/python.exe", instructions="i")
     assert "ONLY with the Write and Edit tools" in p and "no PowerShell" in p

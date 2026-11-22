@@ -32,6 +32,11 @@ The instructions (`instructions_md`, markdown) must contain these sections:
   variable (see tests/test_api.py), must FAIL against the current code and PASS after the change. Name the test file.
   The failing part must come from the changed behavior itself. Never plan a test that hard-codes the new VERSION
   string (it would break at the next release); the existing semver-shaped version test already covers /version.
+  A test must never pass vacuously: if it loops over items or values, it must first assert that the data it is about
+  really exists (for example `assert any(...)`), and the checked values must be real (not empty, null or placeholders);
+  never plan `if x is None: continue` around the key assertions. Check the real data as it is today (the code, and the
+  live feed with WebFetch when the task is about its content). If the thing the ticket is about does not actually
+  exist in that data, say so under **Assumptions** and plan the fix at the data source, not only in the parsing.
 - **Version**: bump the minor number in VERSION (current: read the file), e.g. 0.1.0 -> 0.2.0.
 - **Assumptions**: the choices you made where the ticket was ambiguous (write "none" if there were none).
 - **Out of scope**: what must not be touched.

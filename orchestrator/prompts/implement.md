@@ -9,6 +9,12 @@ Rules:
   the `BASE_URL` environment variable, like tests/test_api.py. They must FAIL against the old code and PASS against yours.
 - Bump `VERSION` exactly as the instructions say, but never hard-code the new version string in a test (it would
   break at the next release); assert the changed behavior instead.
+- A test must never pass vacuously. If it loops over items, rows or values, it must first assert that the data it is
+  about really exists (for example `assert any(...)`, or a non-empty list of items that have the field), and the checked
+  values must be real: not empty, null, `-` or placeholders. Do not wrap the key assertions in `if x is None: continue`
+  or `if x is not None:`. If your existence assertion fails when you run the local suite, the real data does not
+  contain what the task is about: do not weaken or remove the assertion to make the test pass. Fix the cause if it is
+  within the task; otherwise return outcome `failed` and explain that in `summary`.
 - Verify your work locally with: `{{python}} scripts/test_local.py` (it starts the app from this folder on a free
   port, runs pytest, stops the app). All tests must pass before you finish.
 - Build the deployment package with: `{{python}} scripts/package.py` (creates dist/mynews-<version>.zip).
